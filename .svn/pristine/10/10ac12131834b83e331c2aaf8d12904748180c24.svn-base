@@ -1,0 +1,275 @@
+package com.webdb.api.controller;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
+
+import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
+
+import com.mongodb.client.result.UpdateResult;
+import com.webdb.api.domain.AreaList;
+import com.webdb.api.domain.PolicyUtil;
+import com.webdb.api.dto.AreaDTO;
+import com.webdb.api.util.AutoTypeUtil;
+
+@Controller
+@RequestMapping("/area")
+public class AreaListController {
+	private static final Logger logger = LoggerFactory.getLogger(AreaListController.class);
+
+    @Autowired
+    MongoTemplate mongoTemplate;
+	/**
+     * 지역 등록
+     */
+    @ResponseBody
+    @RequestMapping(value="/save", method=RequestMethod.POST)
+    public Map<String, Object> saveArea(AreaDTO area) {
+        try {
+        	Query query = new Query(Criteria.where("AreaCode").is(area.getAreaCode()));
+        	Boolean isExist = mongoTemplate.exists(query, AreaList.class, "AreaList");
+        	if(isExist){ return PolicyUtil.newFailureMap("-1","코드 중복"); }//예외처리
+        	
+            AreaList input = new AreaList();
+            input.AreaCode = area.getAreaCode();
+            input.SiDo = area.getSiDo();
+            input.SiGun = area.getSiGun();
+            input.AreaName = area.getAreaName();
+            input.ViewName = area.getViewName();
+            input.Depth = area.getDepth();
+            input.KeyMap = AutoTypeUtil.toQWERT(area.getAreaName());
+            
+            mongoTemplate.insert(input, "AreaList");
+            
+			Map<String, Object> resultMap = PolicyUtil.newSuccessMap();
+			//resultMap.put("resultId", result.getUpsertedId());
+			return resultMap;
+        } catch (Exception e) {
+        	logger.error(e.getMessage(), e);
+            return PolicyUtil.newFailureMap("-100", e.getMessage());
+        }
+    }
+    
+    /**
+     * 지역 수정
+     */
+    @ResponseBody
+    @RequestMapping(value="/update", method=RequestMethod.POST)
+    public Map<String, Object> updateArea(AreaDTO area) {
+        try {
+        	Query query = new Query(Criteria.where("AreaCode").is(area.getAreaCode()));
+        	Update upquery = new Update();
+        	upquery.set("SiDo", area.getSiDo());
+        	upquery.set("SiGun", area.getSiGun());
+        	upquery.set("AreaName", area.getAreaName());
+        	upquery.set("ViewName", area.getViewName());
+        	upquery.set("Depth", area.getDepth());
+        	upquery.set("KeyMap", AutoTypeUtil.toQWERT(area.getAreaName()));
+        	
+        	UpdateResult result = mongoTemplate.updateFirst(query, upquery, AreaList.class, "AreaList");
+            
+			Map<String, Object> resultMap = PolicyUtil.newSuccessMap();
+			resultMap.put("resultId", result.toString());
+			return resultMap;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return PolicyUtil.newFailureMap();
+        }
+    }
+    
+    /**
+     * 지역 삭제
+     */
+    @ResponseBody
+    @RequestMapping(value="/delete", method=RequestMethod.POST)
+    public Map<String, Object> deleteArea(@RequestParam("areaCode") List<String> codes) {
+        try {
+
+        	Query query = new Query(Criteria.where("AreaCode").in(codes));
+        	List<AreaList> result = mongoTemplate.findAllAndRemove(query, "AreaList");
+        	
+
+			Map<String, Object> jsonMap = PolicyUtil.newSuccessMap();
+			jsonMap.put("arealist", result);
+			return jsonMap;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+            return PolicyUtil.newFailureMap();
+        }
+    }
+	
+	/**
+	 * 자동완성
+	 */
+	@ResponseBody
+	@RequestMapping(value = "/search", method = RequestMethod.GET)
+	public Map<String, Object> searchArea(
+	        @RequestParam(value = "query", required = true) String query,
+	        @RequestParam(value = "page", required = true) int page,
+	        @RequestParam(value = "limit", required = true) int limit,
+            @RequestParam(value = "isview", required = false) String isview)
+    {
+        if(isview == null) isview = "0";
+
+		try {
+
+			Query dslQuery = new Query();
+		    if(isview.equals("0"))
+		    {
+		    	Pattern keywordPattern = Pattern.compile(query);
+		    	dslQuery.addCriteria(Criteria.where("AreaName").regex(keywordPattern));
+            }
+		    else
+            {
+		    	Pattern keywordPattern = Pattern.compile(query);
+		    	dslQuery.addCriteria(Criteria.where("ViewName").regex(keywordPattern));
+            }
+		    
+        	long totalcount = mongoTemplate.count(dslQuery, AreaList.class);
+        	
+        	dslQuery.skip((page -1) * limit).limit(limit);
+        	List<AreaList> mAreaList = mongoTemplate.find(dslQuery, AreaList.class, "AreaList");
+        	
+			List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+			for(AreaList a: mAreaList) {
+        		Map<String, Object> tempMap = new HashMap<String, Object>();
+        		tempMap.put("code", a.AreaCode);
+        		tempMap.put("name", a.AreaName);
+        		result.add(tempMap);
+        	}
+			
+			Map<String, Object> jsonMap = PolicyUtil.newSuccessMap();
+			jsonMap.put("arealist", result);
+			jsonMap.put("totalcount", totalcount);
+
+			return jsonMap;
+		} catch (Exception e) {
+			logger.error(e.getMessage(), e);
+            return PolicyUtil.newFailureMap();
+		}
+	}
+	
+	/**
+     * 시/도 목록
+     */
+    @ResponseBody
+    @RequestMapping(value = "/sido", method = RequestMethod.GET)
+    public Map<String, Object> sidoList() {
+        
+        try {
+        	Query query = new Query(Criteria.where("Depth").is("1"));
+        	
+        	logger.info(query.toString());
+        	List<AreaList> mAreaList = mongoTemplate.find(query, AreaList.class, "AreaList");
+        	
+        	List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        	for(AreaList a: mAreaList) {
+        		Map<String, Object> tempMap = new HashMap<String, Object>();
+        		tempMap.put("code", a.AreaCode);
+        		tempMap.put("name", a.AreaName);
+        		result.add(tempMap);
+        	}
+        	
+            Map<String, Object> jsonMap = PolicyUtil.newSuccessMap();
+            jsonMap.put("arealist", result);
+            
+            return jsonMap;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);   
+            return PolicyUtil.newFailureMap();
+            
+        }
+    }
+	
+	/**
+	 * 지역 목록
+	 */
+	@ResponseBody
+	@RequestMapping(value = "/list", method = RequestMethod.GET)
+	public Map<String, Object> areaList(AreaDTO area) {
+		try {
+			Query query = new Query();
+		    //parentCode
+		    String parentCode = area.getParent();
+		    if (StringUtils.isNotEmpty(parentCode)) {
+		    	// 시작 두글자가 같은 것 찾기
+		    	Pattern keywordPattern = Pattern.compile("^" +parentCode.substring(0, 2));
+	        	query.addCriteria(Criteria.where("AreaCode").regex(keywordPattern));
+		    }
+		    
+		    //keyword
+		    String keyword = area.getQuery();
+		    if (StringUtils.isNotEmpty(keyword)) {
+		    	Pattern keywordPattern = Pattern.compile(keyword);
+	        	query.addCriteria(Criteria.where("AreaName").regex(keywordPattern));
+		    }
+
+		    long totalCnt = mongoTemplate.count(query, AreaList.class);
+		    if (area.isPageable()) {
+		        //listSql.append(" LIMIT ").append(area.getOffset()).append(", ").append(area.getLimit());		    	
+		    	query.skip((area.getPage() -1) * area.getLimit()).limit(area.getLimit());
+		    }
+			
+
+        	List<AreaList> mAreaList = mongoTemplate.find(query, AreaList.class, "AreaList");
+        	List<Map<String, Object>> jsonList = new ArrayList<Map<String, Object>>();
+        	for(AreaList a: mAreaList) {
+        		Map<String, Object> tempMap = new HashMap<String, Object>();
+        		tempMap.put("view", a.ViewName);
+        		tempMap.put("code", a.AreaCode);
+        		tempMap.put("depth", a.Depth);
+        		tempMap.put("sido", a.SiDo);
+        		tempMap.put("name", a.AreaName);
+        		tempMap.put("sigun", a.SiGun);
+        		jsonList.add(tempMap);
+        	}
+        	
+            Map<String, Object> jsonMap = PolicyUtil.newSuccessMap();
+			jsonMap.put("arealist", jsonList);
+			jsonMap.put("totalcount", totalCnt);
+
+			return jsonMap;
+		} catch (Exception e) {
+			logger.error(e.getMessage(), e);
+            return PolicyUtil.newFailureMap();
+		}
+	}
+	
+	/**
+     * 지역명 목록
+     */
+    @ResponseBody
+    @RequestMapping(value = "/namelist", method = RequestMethod.GET)
+    public List<Map<String, Object>> areaNameList() {
+        try {
+        	List<AreaList> mAreaList = mongoTemplate.findAll(AreaList.class);
+
+        	List<Map<String, Object>> jsonList = new ArrayList<Map<String, Object>>();
+        	for(AreaList a: mAreaList) {
+        		Map<String, Object> tempMap = new HashMap<String, Object>();
+        		tempMap.put("view", a.ViewName);
+        		tempMap.put("name", a.AreaName);
+        		jsonList.add(tempMap);
+        	}
+            return jsonList;
+        } catch (Exception e) {
+            logger.error(e.getMessage(), e);
+        	List<Map<String, Object>> jsonList = new ArrayList<Map<String, Object>>();
+            return jsonList;
+        }
+    }
+}
