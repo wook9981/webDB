@@ -198,7 +198,7 @@ public class ItemListController {
 			Query query = new Query();
 		    String parentCode = item.getParent();
 		    
-		    System.out.println("parentCode ==> "+ parentCode);
+		    System.out.println(" 1. parentCode ==> "+ parentCode);
 		    
 		    if (StringUtils.isEmpty(parentCode)) {
 		    	// 최초 로딩 시 Depth == 5 인걸로
